@@ -35,6 +35,9 @@ public slots:
         void refreshDevicesList();
         void connectDevice();
         void updatefft();
+        void updatePlot();
+        void addTask();
+
         void resetAvg();
     /*    void setRx0IQ(int percent);
         void setRx1IQ(int percent);

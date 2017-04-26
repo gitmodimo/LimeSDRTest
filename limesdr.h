@@ -1,15 +1,24 @@
 #ifndef LIMESDR_H
 #define LIMESDR_H
 #include <string>
+#include <mutex>
 #include <SoapySDR/Device.hpp>
 #include <SoapySDR/Formats.hpp>
 #include <SoapySDR/Types.hpp>
+#include <SoapySDR/Formats.hpp>
+#include <SoapySDR/Time.hpp>
 #include <QWidget>
 #include <QThread>
 #include <QDebug>
 #ifndef Q_DECL_OVERRIDE
     #define Q_DECL_OVERRIDE override
 #endif
+
+struct LimeSDRTask{
+    std::vector<std::complex<int16_t> > TX[2];
+    std::vector<std::complex<int16_t> > RX[2];
+    long long timestamp;
+};
 
 
 struct LimeSDRConfig{
@@ -45,10 +54,19 @@ private:
 
     }*/
 
+public:
 signals:
     void resultReady(const QString &s);
+    void taskDone();
 private:
 public:
+    void addTask(LimeSDRTask* task);
+    LimeSDRTask* takeTask();
+    void finishTask(LimeSDRTask* task);
+
+    LimeSDRTask* takeFinishedTask();
+
+
     LimeSDRConfig config;
     SoapySDR::Device  *sdrDevice;
     SoapySDR::Stream *rxStream;
@@ -57,17 +75,12 @@ public:
     //RX_buff[channel][sample]
     std::complex<int16_t> *RX_buffs[2];
     std::complex<int16_t> *TX_buffs[2];
+    std::list<LimeSDRTask*> taskList;
+    std::list<LimeSDRTask*> taskDoneList;
+    std::mutex list_mutex;
+    std::mutex doneList_mutex;
 };
 
-/*
-void LimeSDRWorker::startWorkInAThread()
-{
-    WorkerThread *workerThread = new WorkerThread(this);
-    connect(workerThread, &WorkerThread::resultReady, this, &MyObject::handleResults);
-    connect(workerThread, &WorkerThread::finished, workerThread, &QObject::deleteLater);
-    workerThread->start();
-}
-*/
 
 namespace Ui {
 class LimeSDR;

@@ -199,6 +199,7 @@ LimeSDRWorker::LimeSDRWorker(LimeSDRConfig _config):config(_config){
         qDebug()<<e.what();
     }
 
+   // sdrDevice->getStreamMTU()
     //
     RX_buffs[0]=new std::complex<int16_t>[config.buffSize];
     RX_buffs[1]=new std::complex<int16_t>[config.buffSize];
@@ -232,21 +233,148 @@ void LimeSDRWorker::run(){
     } catch (const std::exception& e) {
         qDebug()<<e.what();
     }
+
     sdrDevice->activateStream(rxStream,0,0,0);
     sdrDevice->activateStream(txStream,0,0,0);
 
 
     void *rxb[] = {RX_buffs[0],RX_buffs[1]}; //array of buffers
-
+    void *txb[2];
     /* ... here is the expensive or blocking operation ... */
-    int flags,ret; //flags set by receive operation
+    int flags;
+    int ret; //flags set by receive operation
     long long timeNs,ptimeNs;
+    long long readTick[2];
+    long long  txTime0 = sdrDevice->getHardwareTime() + (0.001e9) ;//100ms
+    int readCounter[2];
+    LimeSDRTask* task;
+    bool taskDone=true;
+    bool taskFailed=false;
+    bool bufferused=false;
+
+
+
     while(1){
+        // for(int i=0;i<100;++i){
+
+        if(taskDone){
+            task=takeTask();
+            if(task!=nullptr){
+                readCounter[0]=0;
+                readCounter[1]=0;
+                taskDone=false;
+                taskFailed=false;
+                task->timestamp = sdrDevice->getHardwareTime() + (0.001e9) ;//100ms
+                //flags=SOAPY_SDR_HAS_TIME;
+                txb[0]=task->TX[0].data();
+                txb[1]=task->TX[1].data();
+                size_t buffsize=std::min(task->TX[0].size(),task->TX[1].size());
+                flags=SOAPY_SDR_END_BURST|SOAPY_SDR_HAS_TIME;
+                ret=sdrDevice->writeStream(txStream,txb,buffsize,flags,task->timestamp ,1000000);
+                qDebug()<<"TX ret="<<ret<<", flags="<<flags<<"timeNs="<<task->timestamp<<SoapySDR::timeNsToTicks(task->timestamp,config.samplerate);
+            }
+
+        }
+
+        flags=0;
         ret=sdrDevice->readStream(rxStream,rxb,config.buffSize,flags,timeNs,1000000);
-        //if(timeNs-ptimeNs>40960)
-        qDebug()<<"RX ret="<<ret<<", flags="<<flags<<"timeNs="<<timeNs<<"dtimeNs="<<timeNs-ptimeNs;
-        ptimeNs=timeNs;
-        //QThread::msleep(1000);
+        bufferused=false;
+        if(ret&&taskDone==false){
+
+            long long taskTick=SoapySDR::timeNsToTicks(task->timestamp,config.samplerate);
+            long long bufferTick=SoapySDR::timeNsToTicks(timeNs,config.samplerate);
+
+            for(unsigned int i=0;i<2;++i){
+
+                 if(bufferTick+ret>taskTick){//triggered
+                     bufferused=true;
+                     if(bufferTick<=taskTick){//beginning
+                         readTick[i]=taskTick;
+                         for(unsigned int j=(taskTick-bufferTick);
+                             (j<ret && readCounter[i]<task->RX[i].size());
+                             j++){
+                             task->RX[i][readCounter[i]++]=RX_buffs[i][j];
+                             readTick[i]++;
+                         }
+                     }
+                     else if(readCounter[i]<task->RX[i].size()){
+                         if(readTick[i]!=bufferTick){
+                             taskFailed=true;
+                             qDebug()<<"Read lost: "<<readTick[i]<<"!="<<bufferTick;
+                         }
+                         for(unsigned int j=0;
+                             (j<ret && readCounter[i]<task->RX[i].size());
+                             j++){
+                             task->RX[i][readCounter[i]++]=RX_buffs[i][j];
+                             readTick[i]++;
+                         }
+                     }
+                 }
+
+                if(readCounter[0]==task->RX[0].size() && readCounter[1]==task->RX[1].size()||
+                        taskTick+std::max(task->RX[0].size(),task->RX[1].size())<bufferTick){
+                    if(readCounter[0]!=task->RX[0].size() || readCounter[1]!=task->RX[1].size())
+                        taskFailed=true;
+                    taskDone=true;
+                    if(taskFailed==false){
+                        finishTask(task);
+
+                        task=nullptr;
+                    }
+
+                }
+            }
+        }
+        if(bufferused)            qDebug()<<"RX ret="<<ret<<", flags="<<flags<<"timeNs="<<timeNs<<"dtimeNs="<<timeNs-ptimeNs<<readTick[0]<<readTick[1];
+
+       ptimeNs=timeNs;
+
+
+       //  QThread::usleep(10000);
     }
     emit resultReady(result);
+}
+
+void LimeSDRWorker::addTask(LimeSDRTask *task){
+    list_mutex.lock();
+    taskList.push_back(task);
+    list_mutex.unlock();
+}
+
+LimeSDRTask *LimeSDRWorker::takeTask(){
+    LimeSDRTask* tsk;
+    list_mutex.lock();
+    if(taskList.empty()){
+        tsk=nullptr;
+    }
+    else
+    {
+        tsk=taskList.front();
+        taskList.pop_front();
+    }
+    list_mutex.unlock();
+    return tsk;
+}
+
+void LimeSDRWorker::finishTask(LimeSDRTask *task){
+    doneList_mutex.lock();
+    taskDoneList.push_back(task);
+    doneList_mutex.unlock();
+    emit taskDone();
+
+}
+
+LimeSDRTask *LimeSDRWorker::takeFinishedTask(){
+    LimeSDRTask* tsk;
+    doneList_mutex.lock();
+    if(taskDoneList.empty()){
+        tsk=nullptr;
+    }
+    else
+    {
+        tsk=taskDoneList.front();
+        taskDoneList.pop_front();
+    }
+    doneList_mutex.unlock();
+    return tsk;
 }

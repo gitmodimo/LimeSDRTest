@@ -32,11 +32,13 @@ MainWindow::MainWindow(QWidget *parent) :
     connect(ui->refreshDevice,SIGNAL(clicked(bool)),SLOT(refreshDevicesList()));
     connect(ui->connectButton,SIGNAL(clicked(bool)),SLOT(connectDevice()));
     connect(ui->resetButton,SIGNAL(clicked(bool)),SLOT(resetAvg()));
+
+
     timer = new QTimer(this);
-                connect(timer, SIGNAL(timeout()),SLOT(updatefft()));
+
 
     myPlot = new QwtPlot();
-    myPlot->setAxisScale(QwtPlot::yLeft,-180,180);
+    myPlot->setAxisScale(QwtPlot::yLeft,-C_FULL_SCALE*2,C_FULL_SCALE*2);
     curve1 = new QwtPlotCurve("Curve 1");
     curve1->setPen(QPen(QColor(255,0,0)));
 
@@ -113,13 +115,13 @@ void MainWindow::connectDevice(){
     }
 
     ///////////////////////////
-    limeSDRconf.samplerate=SAMPLING;
-    limeSDRconf.bw=40e6;
+    limeSDRconf.samplerate=20e6;
+    limeSDRconf.bw=20e6;
     limeSDRconf.RXFreq=1880.0e6;//10.0e6+2462.0e6;//1880.0e6;//90e6;//2457.0e6;10.0e6+2462.0e6;//
-    limeSDRconf.TXFreq=10e6+1880.0e6;//10.0e6+2462.0e6;//1880.0e6;//90e6;//2457.0e6;10.0e6+2462.0e6;//
+    limeSDRconf.TXFreq=1880.0e6+0e6+0*.0001e6;//10e6+//10.0e6+2462.0e6;//1880.0e6;//90e6;//2457.0e6;10.0e6+2462.0e6;//
     limeSDRconf.RXAntenna="LNAW";
     limeSDRconf.TXAntenna="BAND1";
-    limeSDRconf.RXGainLNA=10;
+    limeSDRconf.RXGainLNA=30;
     limeSDRconf.RXGainTIA=0;
     limeSDRconf.RXGainPGA=19-10;
     limeSDRconf.TXGainPAD=0;
@@ -131,7 +133,11 @@ void MainWindow::connectDevice(){
 
 
     lime=new LimeSDR(limeSDRconf);
+    connect(&lime->worker,SIGNAL(taskDone()),SLOT(updatePlot()));
+    connect(timer, SIGNAL(timeout()),SLOT(addTask()));
     lime->worker.start();
+    timer->start(50);
+    //addTask();
     sdrDevice=lime->worker.sdrDevice;
 
 
@@ -242,7 +248,7 @@ void MainWindow::connectDevice(){
 
 
     //updatefft();
-    //timer->start(2);
+    //
 
 
 
@@ -443,6 +449,108 @@ ts=0;
     curve3->setData(*samples3);
     myPlot->replot();
 
+}
+#define TX_BURST 2040
+#define RX_BURST 4096
+void MainWindow::updatePlot(){
+
+    LimeSDRTask *task=lime->worker.takeFinishedTask();
+
+    samples->clear();
+    samples2->clear();
+    samples3->clear();
+
+
+    fftw_complex *in, *out;
+    fftw_plan p;
+    fftw_complex *in2, *out2;
+    fftw_plan p2;
+    /*in = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * TX_BURST);
+    out = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * TX_BURST);
+    p = fftw_plan_dft_1d(TX_BURST, in, out, FFTW_FORWARD, FFTW_ESTIMATE);*/
+    in2 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * RX_BURST);
+    out2 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * RX_BURST);
+    p2 = fftw_plan_dft_1d(RX_BURST, in2, out2, FFTW_FORWARD, FFTW_ESTIMATE);
+
+
+
+
+
+
+
+    for(int j =0;j<task->RX[0].size();j++){
+        in2[j][0]=task->RX[0][j].real();
+        in2[j][1]=task->RX[0][j].imag();
+    }
+    fftw_execute(p2);
+
+    int ts=0;
+    for(int j =0;j<task->TX[0].size();j++){
+       // samples->push_back(QPointF(ts++,10*20*log(std::sqrt(std::pow(out2[j][0],2.0)+std::pow(out2[j][1],2.0)))));
+        samples->push_back(QPointF(ts++,task->TX[0][j].real()));
+    }
+
+
+    ts=0;
+    double avg=0;for(int j =0;j<task->RX[0].size();j++)avg+=task->RX[0][j].real();avg/=task->RX[0].size();
+    for(int j =0;j<task->RX[0].size();j++){
+        double val;
+        //val=task->RX[0][j].real()-avg;
+        val=std::sqrt(std::pow(task->RX[0][j].real(),2.0)+std::pow(task->RX[0][j].imag(),2.0));
+        val=std::max(val,1.0);
+        val=-100+10*20*log(val);
+         samples2->push_back(QPointF(ts++,val));
+    }
+    ts=0;
+     avg=0;for(int j =0;j<task->RX[1].size();j++)avg+=task->RX[1][j].real();avg/=task->RX[1].size();
+    for(int j =0;j<task->RX[1].size();j++){
+        //samples3->push_back(QPointF(ts++,-100+20*log(std::sqrt(std::pow(task->RX[1][j].real(),2.0)+std::pow(task->RX[1][j].imag(),2.0)))));
+         samples3->push_back(QPointF(ts++,task->RX[1][j].real()-avg));
+    }
+
+
+    curve1->setData(*samples);
+    curve2->setData(*samples2);
+    curve3->setData(*samples3);
+    myPlot->replot();
+
+
+}
+
+void MainWindow::addTask(){
+    static LimeSDRTask testtask;
+
+    const double pi = std::acos(-1);
+    const std::complex<double> j(0, 1);
+    double tonef=-.1e6;
+    double tonef2=+0.2e6;
+    testtask.TX[0].resize(TX_BURST);
+    testtask.TX[1].resize(TX_BURST);
+   /* for(int i=0;i<TX_BURST/4;i++){
+        testtask.TX[0][i]=0;
+        testtask.TX[1][i]=0;
+    }*/
+    for(int i=0;i<TX_BURST;i++){
+        testtask.TX[0][i]=2*C_FULL_SCALE*std::exp(j *2.0* pi*tonef*((double)i)/limeSDRconf.samplerate);
+        testtask.TX[1][i]=0;//C_FULL_SCALE*std::exp(j *2.0* pi*tonef2*((double)i)/SAMPLING);
+        //tx_buff2[i]=std::complex<int16_t>(0,0);
+    }
+    testtask.TX[0][0]=0;
+    testtask.TX[1][0]=0;
+    testtask.TX[0][TX_BURST-1]=0;
+    testtask.TX[1][TX_BURST-1]=0;
+
+    /*for(int i=TX_BURST/2;i<TX_BURST;i++){
+        testtask.TX[0][i]=0;
+        testtask.TX[1][i]=0;
+    }*/
+
+
+
+    testtask.RX[0].resize(RX_BURST);
+    testtask.RX[1].resize(RX_BURST);
+    //for(int i=0;i<1000;i++)
+        lime->worker.addTask(&testtask);
 }
 
 void MainWindow::resetAvg(){
