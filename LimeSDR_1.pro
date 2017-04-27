@@ -18,10 +18,12 @@ QMAKE_CXXFLAGS += -msse2 -DAE_CPU=AE_INTEL
 LIBS +=-lSoapySDR -lqwt -lfftw3 -lm -lalglib
 SOURCES += main.cpp\
         mainwindow.cpp \
-    limesdr.cpp
+    limesdr.cpp \
+    plotter.cpp
 
 HEADERS  += mainwindow.h \
-    limesdr.h
+    limesdr.h \
+    plotter.h
 
 FORMS    += mainwindow.ui \
     limesdr.ui

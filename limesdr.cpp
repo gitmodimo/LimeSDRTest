@@ -167,7 +167,7 @@ LimeSDRWorker::LimeSDRWorker(LimeSDRConfig _config):config(_config){
         qDebug()<<e.what();
     }
     try{
-    sdrDevice->setGain(SOAPY_SDR_TX, 1, "PAD",config.TXGainPAD);
+    sdrDevice->setGain(SOAPY_SDR_TX, 1, "PAD",config.TXGainPAD+10);
     } catch (const std::exception& e) {
         qDebug()<<e.what();
     }

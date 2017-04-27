@@ -11,6 +11,7 @@
 
 #include <qwt5/qwt_plot_grid.h>
 
+#include "plotter.h"
 #include "limesdr.h"
 namespace Ui {
 class MainWindow;
@@ -23,20 +24,19 @@ class MainWindow : public QMainWindow
 public:
     explicit MainWindow(QWidget *parent = 0);
     ~MainWindow();
-    QwtPlot *myPlot;
-    QVector<QPointF>* samples;
-    QVector<QPointF>* samples2;
-    QVector<QPointF>* samples3;
-    QwtPlotCurve *curve1;
-    QwtPlotCurve *curve2;
-    QwtPlotCurve *curve3;
-    QwtPlotGrid *grid;
+    Plotter plot1;
+    Plotter plot2;
+    Plotter plot3;
+    Plotter plot4;
+
 public slots:
         void refreshDevicesList();
         void connectDevice();
         void updatefft();
         void updatePlot();
         void addTask();
+        
+        void stateMachine();
 
         void resetAvg();
     /*    void setRx0IQ(int percent);

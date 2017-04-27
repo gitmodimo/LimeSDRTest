@@ -37,45 +37,7 @@ MainWindow::MainWindow(QWidget *parent) :
     timer = new QTimer(this);
 
 
-    myPlot = new QwtPlot();
-    myPlot->setAxisScale(QwtPlot::yLeft,-C_FULL_SCALE*2,C_FULL_SCALE*2);
-    myPlot->setAxisScale(QwtPlot::xBottom,0,200);
-    curve1 = new QwtPlotCurve("Curve 1");
-    curve1->setPen(QPen(QColor(255,0,0)));
-
-    //QwtPointSeriesData* myData = new QwtPointSeriesData;
-
-    samples = new QVector<QPointF>;
-    samples->push_back(QPointF(1.0,1.0));
-    samples->push_back(QPointF(2.0,2.0));
-    samples->push_back(QPointF(3.0,3.0));
-    samples->push_back(QPointF(4.0,5.0));
-
-    curve1->setData(*samples);
-
-    curve1->attach(myPlot);
-    samples2 = new QVector<QPointF>;
-    samples2->push_back(QPointF(5.0,3.0));
-    samples2->push_back(QPointF(6.0,5.0));
-    curve2 = new QwtPlotCurve("Curve 2");
-    curve2->setPen(QPen(QColor(0,255,0)));
-    curve2->setData(*samples2);
-    curve2->attach(myPlot);
-
-
-    curve3 = new QwtPlotCurve("Curve 3");
-    curve3->setPen(QPen(QColor(0,0,255)));
-    samples3 = new QVector<QPointF>;
-    samples3->push_back(QPointF(7.0,3.0));
-    samples3->push_back(QPointF(8.0,5.0));
-    curve3->setData(*samples3);
-
-    grid=new QwtPlotGrid();
-   // grid->attach(myPlot);
-    curve3->attach(myPlot);
-    myPlot->replot();
-    myPlot->show();
-    resetavg=false;
+      resetavg=false;
 }
 
 MainWindow::~MainWindow()
@@ -117,15 +79,15 @@ void MainWindow::connectDevice(){
 
     ///////////////////////////
     limeSDRconf.samplerate=20e6;
-    limeSDRconf.bw=18e6;
+    limeSDRconf.bw=20e6;
     limeSDRconf.RXFreq=325e6;//1880.0e6;//10.0e6+2462.0e6;//1880.0e6;//90e6;//2457.0e6;10.0e6+2462.0e6;//
     limeSDRconf.TXFreq=325e6;//1880.0e6+0e6+0*.0001e6;//10e6+//10.0e6+2462.0e6;//1880.0e6;//90e6;//2457.0e6;10.0e6+2462.0e6;//
     limeSDRconf.RXAntenna="LNAW";
     limeSDRconf.TXAntenna="BAND1";
-    limeSDRconf.RXGainLNA=30-10;
+    limeSDRconf.RXGainLNA=30-0;
     limeSDRconf.RXGainTIA=0;
     limeSDRconf.RXGainPGA=19-10;
-    limeSDRconf.TXGainPAD=0-10-0;
+    limeSDRconf.TXGainPAD=0-10-10;
     limeSDRconf.RXDCOffsetMode=true;
     limeSDRconf.TXDCOffsetMode=true;
     limeSDRconf.RXApplyCorrections="1";
@@ -256,310 +218,74 @@ void MainWindow::connectDevice(){
 }
 
 void MainWindow::updatefft(){
-    float maxpower;
-    static int init=0;
-    //setup a stream (complex floats){
-    static SoapySDR::Stream *rxStream;
-    static SoapySDR::Stream *txStream;
-    if(!init){
-        init=1;
-        try{
-            rxStream=sdrDevice->setupStream(SOAPY_SDR_RX,SOAPY_SDR_CS16,{0,1},{});
-            qDebug()<<"RX mtu:"<<sdrDevice->getStreamMTU(rxStream);
-            txStream=sdrDevice->setupStream(SOAPY_SDR_TX,SOAPY_SDR_CS16,{0,1},{});
-            qDebug()<<"TX mtu:"<<sdrDevice->getStreamMTU(txStream);
-        } catch (const std::exception& e) {
-            qDebug()<<e.what();
-        }
-        //SoapySDRStream *rxStream;
 
-        /*if (SoapySDRDevice_setupStream(sdrDevice, &rxStream, SOAPY_SDR_RX, SOAPY_SDR_CF32, NULL, 0, NULL) != 0)
-        {
-            //printf("setupStream fail: %s\n", SoapySDRDevice_lastError());
-        }*/
-
-        sdrDevice->activateStream(rxStream,0,0,0);
-        sdrDevice->activateStream(txStream,0,0,0);
-    }
-    //SoapySDRDevice_activateStream(sdrDevice, rxStream, 0, 0, 0); //start streaming
-
-    //create a re-usable buffer for rx samples
-    int N=NUMFFT;
-    std::complex<int16_t> buff[NUMFFT];
-    std::complex<int16_t> buff2[NUMFFT];
-    std::complex<int16_t> tx_buff[NUMFFT];
-    std::complex<int16_t> tx_buff2[NUMFFT];
-
-    const double pi = std::acos(-1);
-    const std::complex<double> j(0, 1);
-    double tonef=-3e6;
-    double tonef2=1e6;
-    for(int i=0;i<NUMFFT;i++){
-        tx_buff[i]=C_FULL_SCALE*std::exp(j *2.0* pi*tonef*((double)i)/SAMPLING);
-        tx_buff2[i]=C_FULL_SCALE*std::exp(j *2.0* pi*tonef2*((double)i)/SAMPLING);
-        //tx_buff2[i]=std::complex<int16_t>(0,0);
-    }
-
-    static QVector<double> anglediff(NUMFFT);
-    static QVector<double> weight(NUMFFT);
-    //receive some samples
-    samples->clear();
-    samples2->clear();
-    samples3->clear();
-    int ts=0;
-    fftw_complex *in, *out;
-    fftw_plan p;
-    fftw_complex *in2, *out2;
-    fftw_plan p2;
-    in = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
-    out = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
-    p = fftw_plan_dft_1d(N, in, out, FFTW_FORWARD, FFTW_ESTIMATE);
-    in2 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
-    out2 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
-    p2 = fftw_plan_dft_1d(N, in2, out2, FFTW_FORWARD, FFTW_ESTIMATE);
-    for (size_t i = 0; i < 1; i++)
-    {
-        samples->clear();
-        samples2->clear();
-        samples3->clear();
- ts=0;
-        void *tx_buffs[] = {tx_buff,tx_buff2}; //array of buffers
-        void *buffs[] = {buff,buff2}; //array of buffers
-        int flags; //flags set by receive operation
-        long long timeNs,ptimeNs; //timestamp for receive buffer
-        long long  txTime0 = sdrDevice->getHardwareTime() + (0.001e9) ;//100ms
-        int ret;
-
-
-        for(int j=0;j<10;j++){
-            ret=sdrDevice->writeStream(txStream,tx_buffs,N,flags,txTime0+j*N*20,1000000);
-            qDebug()<<"TX ret="<<ret<<", flags="<<flags<<"timeNs="<<txTime0+j*N*20;
-        }
-        do{
-         ret=sdrDevice->readStream(rxStream,buffs,N,flags,timeNs,1000000);
-
-         ptimeNs=timeNs;
-
-        }while(timeNs<txTime0);
-        qDebug()<<"RX ret="<<ret<<", flags="<<flags<<"timeNs="<<timeNs<<"dtimeNs="<<timeNs-txTime0;
-        //int ret = SoapySDRDevice_readStream(sdrDevice, rxStream, buffs, N, &flags, &timeNs, 100000);
-
-
-
-            for(int j=0;j<N;j++){
-                in[j][0]=buff[j].real()/C_FULL_SCALE*tukeyWindow(j,N,0.05);
-                in[j][1]=buff[j].imag()/C_FULL_SCALE*tukeyWindow(j,N,0.05);
-            }
-
-            fftw_execute(p); /* repeat as needed */
-
-ts=0;
-        for(int j =0;j<N;j++){
-        samples->push_back(QPointF(ts++,20*log(sqrt(pow(out[(j+N/2)%N][0],2)+pow(out[(j+N/2)%N][1],2)))));
-        //samples->push_back(QPointF(ts++,10*(sqrt(pow(in[j][0],2)+pow(in[j][1],2)))));
-        }
-
-
-        for(int j=0;j<N;j++){
-            in2[j][0]=buff2[j].real()/C_FULL_SCALE*tukeyWindow(j,N,0.05);
-            in2[j][1]=buff2[j].imag()/C_FULL_SCALE*tukeyWindow(j,N,0.05);
-        }
-
-        fftw_execute(p2); /* repeat as needed */
-ts=0;
-
-        for(int j =0;j<N;j++){
-        samples2->push_back(QPointF(ts++,20*log(sqrt(pow(out2[(j+N/2)%N][0],2)+pow(out2[(j+N/2)%N][1],2)))));
-        }
-
-        ///////////////////
-        /// \brief parg
-        ///
-
-        if(resetavg){
-            resetavg=false;
-            for(int j =0;j<N;j++){
-                anglediff[j]=0;
-                weight[j]=0;
-            }
-        }
-
-
-        ts=0;
-        float parg[100]={0};
-         maxpower=0;
-        for(int j =0;j<N;j++){
-            std::complex<float> ch1,ch2,dif;
-            float arg,diffarg;
-            ch1=std::complex<float>(out[(j+N/2)%N][0],out[(j+N/2)%N][1]);
-            ch2=std::complex<float>(out2[(j+N/2)%N][0],out2[(j+N/2)%N][1]);
-            dif=ch1/ch2;
-            arg=std::arg(dif);
-            diffarg=(arg-parg[99-NUMFFT/100]);
-            if(diffarg>M_PI)
-                diffarg-=2*M_PI;
-            if(diffarg<-M_PI)
-                diffarg+=2*M_PI;
-            float power=std::max(20*log(sqrt(pow(out[(j+N/2)%N][0],2)+pow(out[(j+N/2)%N][1],2))),
-                    20*log(sqrt(pow(out2[(j+N/2)%N][0],2)+pow(out2[(j+N/2)%N][1],2))));
-            if(power<-30){
-                diffarg=0;
-               // anglediff[j]=0;
-               // weight[j]=0;
-            }else{
-                 anglediff[j]=0;
-                 weight[j]=0;
-                anglediff[j]+=diffarg*pow(10,power/20.0);
-                weight[j]+=pow(10,power/20.0);
-                maxpower=std::max((double)maxpower,weight[j]);
-                if(weight[j]>1000){
-                    weight[j]/=2;
-                    anglediff[j]/=2;
-                }
-            }
-            samples3->push_back(QPointF(ts++,anglediff[j]/weight[j]/*diffarg*/*10.0*1.0*1.0-100));
-
-            for(int k=0;k<100-1;k++){
-                parg[k]=parg[k+1];
-            }
-            parg[99]=arg;
-        }
-
-
-
-    }
-    fftw_destroy_plan(p);
-    fftw_free(in); fftw_free(out);
-    qDebug()<<maxpower;
-    //shutdown the stream
-   // sdrDevice->deactivateStream(rxStream,0,0);
-   // sdrDevice->closeStream(rxStream);
-    //sdrDevice->deactivateStream(txStream,0,0);
-  //  sdrDevice->closeStream(txStream);
-//
-   // SoapySDRDevice_deactivateStream(sdrDevice, rxStream, 0, 0); //stop streaming
-   // SoapySDRDevice_closeStream(sdrDevice, rxStream);
-
-    //cleanup device handle
-   // SoapySDRDevice_unmake(sdrDevice);
-
-
-
-    curve1->setData(*samples);
-    curve2->setData(*samples2);
-    curve3->setData(*samples3);
-    myPlot->replot();
 
 }
-#define TX_BURST 20480
-#define RX_BURST 40960
+#define TX_BURST 2048
+#define RX_BURST 4096
 #include <fasttransforms.h>
 void MainWindow::updatePlot(){
-    static double max=0,pmax=0;
+
     LimeSDRTask *task=lime->worker.takeFinishedTask();
 
-    samples->clear();
-    samples2->clear();
-    samples3->clear();
 
+     plot2.setAxisScale(QwtPlot::yLeft,-3000,3000);
+     plot2.draw("TX_REAL",task->TX[0],REAL);
+     plot2.draw("TX_ABS",task->TX[0],ABS);
+     plot2.draw("TX2_REAL",task->TX[1],REAL);
+     plot2.draw("TX2_ABS",task->TX[1],ABS);
+     plot2.draw("RX_REAL",task->RX[0],REAL,0.1);
+     plot2.draw("RX_ABS",task->RX[0],ABS,0.1);
 
-    fftw_complex *in, *out;
-    fftw_plan p;
-    fftw_complex *in2, *out2;
-    fftw_plan p2;
-    /*in = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * TX_BURST);
-    out = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * TX_BURST);
-    p = fftw_plan_dft_1d(TX_BURST, in, out, FFTW_FORWARD, FFTW_ESTIMATE);*/
-    in2 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * RX_BURST);
-    out2 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * RX_BURST);
-    p2 = fftw_plan_dft_1d(RX_BURST, in2, out2, FFTW_FORWARD, FFTW_ESTIMATE);
-
-
-
-
-
-
-
-    for(int j =0;j<task->RX[0].size();j++){
-        in2[j][0]=task->RX[0][j].real();
-        in2[j][1]=task->RX[0][j].imag();
-    }
-    fftw_execute(p2);
-
-    int ts=0;
-    for(int j =0;j<task->TX[0].size();j++){
-       // samples->push_back(QPointF(ts++,10*20*log(std::sqrt(std::pow(out2[j][0],2.0)+std::pow(out2[j][1],2.0)))));
-//        samples->push_back(QPointF(ts++,task->TX[0][j].real()));
-    }
-
-
-    ts=0;
-    double avg=0;for(int j =0;j<task->RX[0].size();j++)avg+=task->RX[0][j].real();avg/=task->RX[0].size();
-    for(int j =0;j<task->RX[0].size();j++){
-        double val;
-        val=task->RX[0][j].real()-avg;
-        val=std::sqrt(std::pow(task->RX[0][j].real(),2.0)+std::pow(task->RX[0][j].imag(),2.0));
-        val=std::max(val,1.0);
-        val=-100+10*20*log(val);
-      //   samples2->push_back(QPointF(ts++,val));
-    }
-     avg=0;for(int j =0;j<task->RX[1].size();j++)avg+=task->RX[1][j].real();avg/=task->RX[1].size();
-
+     //cross correlation
      alglib::complex_1d_array txsig;
      alglib::complex_1d_array rxsig;
      alglib::complex_1d_array trxcorr;
-        txsig.setlength(task->TX[0].size());
-        rxsig.setlength(task->RX[0].size());
-     for(int j =0;j<task->TX[0].size();j++){
-        // samples->push_back(QPointF(ts++,10*20*log(std::sqrt(std::pow(out2[j][0],2.0)+std::pow(out2[j][1],2.0)))));
-         txsig[j]=alglib::complex(task->TX[0][j].real(),task->TX[0][j].imag());
+     {
+         txsig.setlength(task->TX[0].size());
+         rxsig.setlength(task->RX[0].size());
+         for(int j =0;j<task->TX[0].size();j++){
+             // samples->push_back(QPointF(ts++,10*20*log(std::sqrt(std::pow(out2[j][0],2.0)+std::pow(out2[j][1],2.0)))));
+             txsig[j]=alglib::complex(task->TX[0][j].real(),task->TX[0][j].imag());
+         }
+         for(int j =0;j<task->RX[0].size();j++){
+             rxsig[j]=alglib::complex(task->RX[0][j].real(),task->RX[0][j].imag());
+         }
+
+
+         alglib::corrc1d(rxsig,task->RX[0].size(),
+                 txsig,task->TX[0].size(),
+                 trxcorr);
      }
-     for(int j =0;j<task->RX[0].size();j++){
-         rxsig[j]=alglib::complex(task->RX[0][j].real(),task->RX[0][j].imag());
-     }
 
 
-     alglib::corrc1d(rxsig,task->RX[0].size(),
-         txsig,task->TX[0].size(),
-         trxcorr);
 
 
-    max=0;
-
-    ts=-task->TX[0].size();
-    for(int j =0;j<task->TX[0].size()-1;j++){
-        double val;
-        val=std::sqrt(std::pow(trxcorr[j+task->RX[0].size()].x,2.0)+std::pow(trxcorr[j+task->RX[0].size()].y,2.0));
-        max=std::max(max,val);
-        //val=std::max(val,1.0);
-        //val=-100+20*log(val);
-        //val/=pmax/3000.0;
-        val=500*(log(val)-20);
-         samples3->push_back(QPointF(ts++,val));
-    }
-    ts=0;
-    for(int j =0;j<task->RX[0].size();j++){
-        double val;
-        //val=task->RX[1][j].real()-avg;
-        //val=std::sqrt(std::pow(task->RX[1][j].real(),2.0)+std::pow(task->RX[1][j].imag(),2.0));
-        double scale=2048*2048*10;
-        samples->push_back(QPointF(ts,trxcorr[j].x/scale));
-        samples2->push_back(QPointF(ts,trxcorr[j].y/scale));
-        val=std::sqrt(std::pow(trxcorr[j].x,2.0)+std::pow(trxcorr[j].y,2.0));
-        max=std::max(max,val);
-        //val=std::max(val,1.0);
-        //val=-100+20*log(val);
-         //val/=pmax/3000.0;
-         val=500*(log(val)-20);
-         samples3->push_back(QPointF(ts++,val));
-    }
-    pmax=max;
+    plot1.setAxisScale(QwtPlot::yLeft,-1000,1000);
+    plot1.draw("CORR_REAL",trxcorr,0,task->RX[0].size(),REAL,1.0/1.0/2048.0/2048.0);
+    plot1.draw("CORR_IMAG",trxcorr,0,task->RX[0].size(),IMAG,1.0/1.0/2048.0/2048.0);
+    plot1.draw("CORR_ABS",trxcorr,0,task->RX[0].size(),ABS,1.0/1.0/2048.0/2048.0);
+    plot1.draw("CORR_LOG",trxcorr,0,task->RX[0].size(),LOG);
 
 
-    curve1->setData(*samples);
-    curve2->setData(*samples2);
-    curve3->setData(*samples3);
-    myPlot->replot();
+
+
+    plot4.setAxisScale(QwtPlot::yLeft,0,500);
+    plot4.draw("RX_LOG",rxsig,LOG);
+
+
+    //spectrogram
+
+    plot3.setAxisScale(QwtPlot::yLeft,0,500);
+    alglib::fftc1d(rxsig,rxsig.length());
+    plot3.draw("RX_LOG",rxsig,LOG);
+
+
+
+
+
+
+
 
 
 }
@@ -579,13 +305,18 @@ void MainWindow::addTask(){
         testtask.TX[0][i]=0;
         testtask.TX[1][i]=0;
     }*/
+    double ph=((double)ui->phaseSlider->value()/100.0*2*M_PI);
+    double ampl=ui->ampSlider->value()/100.0;
+    double absphase=ui->absPhase->value()/1000.0*2.0*M_PI;
     for(int i=0;i<TX_BURST;i++){
-       // testtask.TX[0][i]=2*C_FULL_SCALE*std::exp(j *2.0* pi*tonef*((double)i)/limeSDRconf.samplerate);
-        testtask.TX[0][i]=C_FULL_SCALE*std::exp(-j* pi*u*(double)i*((double)i+1.0+2.0*q)/((double)TX_BURST/10.0));
+        //testtask.TX[0][i]=1.0*C_FULL_SCALE*std::exp(j *2.0* pi*tonef*(((double)i)/limeSDRconf.samplerate));
+        testtask.TX[0][i]=C_FULL_SCALE*std::exp(-j* pi*u*(double)i*((double)i+1.0+2.0*q+TX_BURST/8.0)/((double)TX_BURST*10));
 
 
 
-        testtask.TX[1][i]=0;//C_FULL_SCALE*std::exp(j *2.0* pi*tonef2*((double)i)/SAMPLING);
+        //testtask.TX[1][i]=ampl*1.0*C_FULL_SCALE*std::exp(j *2.0* pi*(ph+tonef*((double)i)/limeSDRconf.samplerate));//C_FULL_SCALE*std::exp(j *2.0* pi*tonef2*((double)i)/SAMPLING);
+        testtask.TX[1][i]=-ampl*C_FULL_SCALE*std::exp(j*absphase-j* pi*u*((double)i*(ph+(double)i+1.0+2.0*q+TX_BURST/8.0)/((double)TX_BURST*10)));
+
         //tx_buff2[i]=std::complex<int16_t>(0,0);
     }
     testtask.TX[0][0]=0;
@@ -606,23 +337,19 @@ void MainWindow::addTask(){
         lime->worker.addTask(&testtask);
 }
 
+void MainWindow::stateMachine(){
+
+    
+}
+
+
+enum state_t{
+    init_state,
+    
+    
+};
+
 void MainWindow::resetAvg(){
     resetavg=true;
 }
-/*
-void MainWindow::setRx0IQ(int percent){
-    //sdrDevice->setIQBalance(SOAPY_SDR_RX,0,(double));
-}
 
-void MainWindow::setRx1IQ(int percent){
-
-}
-
-void MainWindow::setTx0IQ(int percent){
-
-}
-
-void MainWindow::setTx1IQ(int percent){
-
-}
-*/
