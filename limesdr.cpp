@@ -240,10 +240,17 @@ void LimeSDRWorker::run(){
 
     void *rxb[] = {RX_buffs[0],RX_buffs[1]}; //array of buffers
     void *txb[2];
+    void *dummytxb[2];
+    std::complex<int16_t> dummy[1024];
+    dummytxb[0]=dummy;
+    dummytxb[1]=dummy;
+
     /* ... here is the expensive or blocking operation ... */
     int flags;
     int ret; //flags set by receive operation
     long long timeNs,ptimeNs;
+    const long long txBufferAhead=0.1e9;
+    long long txBufferTime=txBufferAhead;
     long long readTick[2];
     long long  txTime0 = sdrDevice->getHardwareTime() + (0.001e9) ;//100ms
     int readCounter[2];
@@ -256,28 +263,52 @@ void LimeSDRWorker::run(){
 
     while(1){
         // for(int i=0;i<100;++i){
+        while(txBufferTime-txBufferAhead<sdrDevice->getHardwareTime()){
+            if(taskDone){
+                task=takeTask();
+                if(task!=nullptr){
+                    readCounter[0]=0;
+                    readCounter[1]=0;
+                    taskDone=false;
+                    taskFailed=false;
+                    //task->timestamp = sdrDevice->getHardwareTime() + (0.001e9) ;//100ms
+                    task->timestamp=txBufferTime;
+                    //flags=SOAPY_SDR_HAS_TIME;
+                    txb[0]=task->TX[0].data();
+                    txb[1]=task->TX[1].data();
+                    size_t buffsize=std::min(task->TX[0].size(),task->TX[1].size());
+                    flags=SOAPY_SDR_HAS_TIME;
+                    ret=sdrDevice->writeStream(txStream,txb,buffsize,flags,task->timestamp ,1000000);
+                    if(ret)
+                        txBufferTime+=SoapySDR::ticksToTimeNs(ret,config.samplerate);
+                    //qDebug()<<"TX ret="<<ret<<", flags="<<flags<<"timeNs="<<task->timestamp<<SoapySDR::timeNsToTicks(task->timestamp,config.samplerate);
+                }else{
+                    flags=SOAPY_SDR_HAS_TIME;
+                    ret=sdrDevice->writeStream(txStream,dummytxb,1024,flags,txBufferTime ,1000000);
+                    if(ret)
+                        txBufferTime+=SoapySDR::ticksToTimeNs(ret,config.samplerate);
+                    //qDebug()<<"DTX ret="<<ret<<", flags="<<flags<<"timeNs="<<txBufferTime<<SoapySDR::timeNsToTicks(txBufferTime,config.samplerate);
 
-        if(taskDone){
-            task=takeTask();
-            if(task!=nullptr){
-                readCounter[0]=0;
-                readCounter[1]=0;
-                taskDone=false;
-                taskFailed=false;
-                task->timestamp = sdrDevice->getHardwareTime() + (0.001e9) ;//100ms
-                //flags=SOAPY_SDR_HAS_TIME;
-                txb[0]=task->TX[0].data();
-                txb[1]=task->TX[1].data();
-                size_t buffsize=std::min(task->TX[0].size(),task->TX[1].size());
-                flags=SOAPY_SDR_END_BURST|SOAPY_SDR_HAS_TIME;
-                ret=sdrDevice->writeStream(txStream,txb,buffsize,flags,task->timestamp ,1000000);
-                qDebug()<<"TX ret="<<ret<<", flags="<<flags<<"timeNs="<<task->timestamp<<SoapySDR::timeNsToTicks(task->timestamp,config.samplerate);
+                }
+            }else{
+                flags=SOAPY_SDR_HAS_TIME;
+                ret=sdrDevice->writeStream(txStream,dummytxb,1024,flags,txBufferTime ,1000000);
+                if(ret)
+                    txBufferTime+=SoapySDR::ticksToTimeNs(ret,config.samplerate);
+       //         qDebug()<<"DDTX ret="<<ret<<", flags="<<flags<<"timeNs="<<txBufferTime<<SoapySDR::timeNsToTicks(txBufferTime,config.samplerate);
+
             }
 
         }
 
         flags=0;
         ret=sdrDevice->readStream(rxStream,rxb,config.buffSize,flags,timeNs,1000000);
+       /* qDebug()<<SoapySDR::timeNsToTicks(sdrDevice->getHardwareTime(),config.samplerate)
+               <<SoapySDR::timeNsToTicks(txBufferTime,config.samplerate)
+              <<SoapySDR::timeNsToTicks(timeNs,config.samplerate)
+             <<SoapySDR::timeNsToTicks(txBufferTime,config.samplerate)-SoapySDR::timeNsToTicks(sdrDevice->getHardwareTime(),config.samplerate)
+            <<SoapySDR::timeNsToTicks(sdrDevice->getHardwareTime(),config.samplerate)-SoapySDR::timeNsToTicks(timeNs,config.samplerate)
+                ;*/
         bufferused=false;
         if(ret&&taskDone==false){
 
@@ -325,7 +356,7 @@ void LimeSDRWorker::run(){
                 }
             }
         }
-        if(bufferused)            qDebug()<<"RX ret="<<ret<<", flags="<<flags<<"timeNs="<<timeNs<<"dtimeNs="<<timeNs-ptimeNs<<readTick[0]<<readTick[1];
+      //  if(bufferused)            qDebug()<<"RX ret="<<ret<<", flags="<<flags<<"timeNs="<<timeNs<<"dtimeNs="<<timeNs-ptimeNs<<readTick[0]<<readTick[1];
 
        ptimeNs=timeNs;
 

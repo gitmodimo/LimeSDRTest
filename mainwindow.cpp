@@ -39,6 +39,7 @@ MainWindow::MainWindow(QWidget *parent) :
 
     myPlot = new QwtPlot();
     myPlot->setAxisScale(QwtPlot::yLeft,-C_FULL_SCALE*2,C_FULL_SCALE*2);
+    myPlot->setAxisScale(QwtPlot::xBottom,0,200);
     curve1 = new QwtPlotCurve("Curve 1");
     curve1->setPen(QPen(QColor(255,0,0)));
 
@@ -70,7 +71,7 @@ MainWindow::MainWindow(QWidget *parent) :
     curve3->setData(*samples3);
 
     grid=new QwtPlotGrid();
-    grid->attach(myPlot);
+   // grid->attach(myPlot);
     curve3->attach(myPlot);
     myPlot->replot();
     myPlot->show();
@@ -116,15 +117,15 @@ void MainWindow::connectDevice(){
 
     ///////////////////////////
     limeSDRconf.samplerate=20e6;
-    limeSDRconf.bw=20e6;
-    limeSDRconf.RXFreq=1880.0e6;//10.0e6+2462.0e6;//1880.0e6;//90e6;//2457.0e6;10.0e6+2462.0e6;//
-    limeSDRconf.TXFreq=1880.0e6+0e6+0*.0001e6;//10e6+//10.0e6+2462.0e6;//1880.0e6;//90e6;//2457.0e6;10.0e6+2462.0e6;//
+    limeSDRconf.bw=18e6;
+    limeSDRconf.RXFreq=325e6;//1880.0e6;//10.0e6+2462.0e6;//1880.0e6;//90e6;//2457.0e6;10.0e6+2462.0e6;//
+    limeSDRconf.TXFreq=325e6;//1880.0e6+0e6+0*.0001e6;//10e6+//10.0e6+2462.0e6;//1880.0e6;//90e6;//2457.0e6;10.0e6+2462.0e6;//
     limeSDRconf.RXAntenna="LNAW";
     limeSDRconf.TXAntenna="BAND1";
-    limeSDRconf.RXGainLNA=30;
+    limeSDRconf.RXGainLNA=30-10;
     limeSDRconf.RXGainTIA=0;
     limeSDRconf.RXGainPGA=19-10;
-    limeSDRconf.TXGainPAD=0;
+    limeSDRconf.TXGainPAD=0-10-0;
     limeSDRconf.RXDCOffsetMode=true;
     limeSDRconf.TXDCOffsetMode=true;
     limeSDRconf.RXApplyCorrections="1";
@@ -450,10 +451,11 @@ ts=0;
     myPlot->replot();
 
 }
-#define TX_BURST 2040
-#define RX_BURST 4096
+#define TX_BURST 20480
+#define RX_BURST 40960
+#include <fasttransforms.h>
 void MainWindow::updatePlot(){
-
+    static double max=0,pmax=0;
     LimeSDRTask *task=lime->worker.takeFinishedTask();
 
     samples->clear();
@@ -487,7 +489,7 @@ void MainWindow::updatePlot(){
     int ts=0;
     for(int j =0;j<task->TX[0].size();j++){
        // samples->push_back(QPointF(ts++,10*20*log(std::sqrt(std::pow(out2[j][0],2.0)+std::pow(out2[j][1],2.0)))));
-        samples->push_back(QPointF(ts++,task->TX[0][j].real()));
+//        samples->push_back(QPointF(ts++,task->TX[0][j].real()));
     }
 
 
@@ -495,18 +497,63 @@ void MainWindow::updatePlot(){
     double avg=0;for(int j =0;j<task->RX[0].size();j++)avg+=task->RX[0][j].real();avg/=task->RX[0].size();
     for(int j =0;j<task->RX[0].size();j++){
         double val;
-        //val=task->RX[0][j].real()-avg;
+        val=task->RX[0][j].real()-avg;
         val=std::sqrt(std::pow(task->RX[0][j].real(),2.0)+std::pow(task->RX[0][j].imag(),2.0));
         val=std::max(val,1.0);
         val=-100+10*20*log(val);
-         samples2->push_back(QPointF(ts++,val));
+      //   samples2->push_back(QPointF(ts++,val));
+    }
+     avg=0;for(int j =0;j<task->RX[1].size();j++)avg+=task->RX[1][j].real();avg/=task->RX[1].size();
+
+     alglib::complex_1d_array txsig;
+     alglib::complex_1d_array rxsig;
+     alglib::complex_1d_array trxcorr;
+        txsig.setlength(task->TX[0].size());
+        rxsig.setlength(task->RX[0].size());
+     for(int j =0;j<task->TX[0].size();j++){
+        // samples->push_back(QPointF(ts++,10*20*log(std::sqrt(std::pow(out2[j][0],2.0)+std::pow(out2[j][1],2.0)))));
+         txsig[j]=alglib::complex(task->TX[0][j].real(),task->TX[0][j].imag());
+     }
+     for(int j =0;j<task->RX[0].size();j++){
+         rxsig[j]=alglib::complex(task->RX[0][j].real(),task->RX[0][j].imag());
+     }
+
+
+     alglib::corrc1d(rxsig,task->RX[0].size(),
+         txsig,task->TX[0].size(),
+         trxcorr);
+
+
+    max=0;
+
+    ts=-task->TX[0].size();
+    for(int j =0;j<task->TX[0].size()-1;j++){
+        double val;
+        val=std::sqrt(std::pow(trxcorr[j+task->RX[0].size()].x,2.0)+std::pow(trxcorr[j+task->RX[0].size()].y,2.0));
+        max=std::max(max,val);
+        //val=std::max(val,1.0);
+        //val=-100+20*log(val);
+        //val/=pmax/3000.0;
+        val=500*(log(val)-20);
+         samples3->push_back(QPointF(ts++,val));
     }
     ts=0;
-     avg=0;for(int j =0;j<task->RX[1].size();j++)avg+=task->RX[1][j].real();avg/=task->RX[1].size();
-    for(int j =0;j<task->RX[1].size();j++){
-        //samples3->push_back(QPointF(ts++,-100+20*log(std::sqrt(std::pow(task->RX[1][j].real(),2.0)+std::pow(task->RX[1][j].imag(),2.0)))));
-         samples3->push_back(QPointF(ts++,task->RX[1][j].real()-avg));
+    for(int j =0;j<task->RX[0].size();j++){
+        double val;
+        //val=task->RX[1][j].real()-avg;
+        //val=std::sqrt(std::pow(task->RX[1][j].real(),2.0)+std::pow(task->RX[1][j].imag(),2.0));
+        double scale=2048*2048*10;
+        samples->push_back(QPointF(ts,trxcorr[j].x/scale));
+        samples2->push_back(QPointF(ts,trxcorr[j].y/scale));
+        val=std::sqrt(std::pow(trxcorr[j].x,2.0)+std::pow(trxcorr[j].y,2.0));
+        max=std::max(max,val);
+        //val=std::max(val,1.0);
+        //val=-100+20*log(val);
+         //val/=pmax/3000.0;
+         val=500*(log(val)-20);
+         samples3->push_back(QPointF(ts++,val));
     }
+    pmax=max;
 
 
     curve1->setData(*samples);
@@ -522,6 +569,8 @@ void MainWindow::addTask(){
 
     const double pi = std::acos(-1);
     const std::complex<double> j(0, 1);
+    const std::complex<double> q(0, 0);
+    const double u=1;
     double tonef=-.1e6;
     double tonef2=+0.2e6;
     testtask.TX[0].resize(TX_BURST);
@@ -531,7 +580,11 @@ void MainWindow::addTask(){
         testtask.TX[1][i]=0;
     }*/
     for(int i=0;i<TX_BURST;i++){
-        testtask.TX[0][i]=2*C_FULL_SCALE*std::exp(j *2.0* pi*tonef*((double)i)/limeSDRconf.samplerate);
+       // testtask.TX[0][i]=2*C_FULL_SCALE*std::exp(j *2.0* pi*tonef*((double)i)/limeSDRconf.samplerate);
+        testtask.TX[0][i]=C_FULL_SCALE*std::exp(-j* pi*u*(double)i*((double)i+1.0+2.0*q)/((double)TX_BURST/10.0));
+
+
+
         testtask.TX[1][i]=0;//C_FULL_SCALE*std::exp(j *2.0* pi*tonef2*((double)i)/SAMPLING);
         //tx_buff2[i]=std::complex<int16_t>(0,0);
     }

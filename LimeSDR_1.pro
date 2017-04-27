@@ -11,7 +11,11 @@ QMAKE_CXXFLAGS += -std=c++11 #(or QMAKE_CXXFLAGS += -std=c++0x)
 TARGET = LimeSDR_1
 TEMPLATE = app
 
-LIBS +=-lSoapySDR -lqwt -lfftw3 -lm
+QMAKE_CXXFLAGS += -msse2 -DAE_CPU=AE_INTEL
+
+
+
+LIBS +=-lSoapySDR -lqwt -lfftw3 -lm -lalglib
 SOURCES += main.cpp\
         mainwindow.cpp \
     limesdr.cpp
