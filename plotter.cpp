@@ -28,11 +28,12 @@ double getImag(std::vector<std::complex<int16_t> > samples,int i){
 Plotter::Plotter(QWidget *parent) : QWidget(parent)
 {
     pens.append(QPen(QColor(255,0,0)));
-    pens.append(QPen(QColor(0,255,0)));
     pens.append(QPen(QColor(0,0,255)));
+    pens.append(QPen(QColor(0,255,0)));
     pens.append(QPen(QColor(255,255,0)));
     pens.append(QPen(QColor(0,255,255)));
     pens.append(QPen(QColor(255,0,255)));
+    grid.attach(&plot);
     plot.show();
 }
 

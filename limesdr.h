@@ -55,6 +55,26 @@ private:
     }*/
 
 public:
+
+public slots:
+    void setLNA(int gain);
+    void setTIA(int gain);
+    void setPGA(int gain);
+    void setPAD(int gain);
+    void setRxAntenna(QString ant){
+        config.RXAntenna=ant.toStdString();
+        try{
+        sdrDevice->setAntenna(SOAPY_SDR_RX, 0, config.RXAntenna);
+        } catch (const std::exception& e) {
+            qDebug()<<e.what();
+        }
+        try{
+        sdrDevice->setAntenna(SOAPY_SDR_RX, 1,  config.RXAntenna);
+        } catch (const std::exception& e) {
+            qDebug()<<e.what();
+        }
+    }
+
 signals:
     void resultReady(const QString &s);
     void taskDone();
@@ -89,6 +109,7 @@ class LimeSDR;
 class LimeSDR : public QWidget
 {
     Q_OBJECT
+
 
 public:
     explicit LimeSDR(LimeSDRConfig _config, QWidget *parent = 0);

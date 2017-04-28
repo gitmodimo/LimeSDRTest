@@ -10,7 +10,10 @@ enum PlotterMode{
     REAL,
     IMAG,
     ABS,
-    LOG
+    LOG,
+    FFT,
+    REAL_SHIFT,
+    IMAG_SHIFT,
 };
 
 struct PlotterCurve{
@@ -52,6 +55,7 @@ public:
         PlotterCurve *curve=PlotterCurveByName(name);
         curve->samples.clear();
         int numel=getNumel(samples);
+        int ctr,ii;
         switch(mode){
         case REAL:
             for(int i=from;i<to;++i)
@@ -72,6 +76,38 @@ public:
                 curve->samples.push_back(QPointF(i,val));
             }
             break;
+        case FFT:
+            ctr=(from+to)/2;
+            ii=-ctr;
+            for(int i=ctr;i<to;++i){
+                double val=scale*10.0*std::log(std::sqrt(offset+std::pow(getReal(samples,i),2.0)+std::pow(getImag(samples,i),2.0)));
+                if(val<0)val=scale;
+                curve->samples.push_back(QPointF(ii++,val));
+            }
+
+            for(int i=from;i<ctr;++i){
+                double val=scale*10.0*std::log(std::sqrt(offset+std::pow(getReal(samples,i),2.0)+std::pow(getImag(samples,i),2.0)));
+                if(val<0)val=scale;
+                curve->samples.push_back(QPointF(ii++,val));
+            }
+            break;
+        case REAL_SHIFT:
+            ctr=(from+to)/2;
+            ii=-ctr;
+            for(int i=ctr;i<to;++i)
+                curve->samples.push_back(QPointF(ii++,scale*(offset+getReal(samples,i))));
+            for(int i=from;i<ctr;++i)
+                curve->samples.push_back(QPointF(ii++,scale*(offset+getReal(samples,i))));
+            break;
+        case IMAG_SHIFT:
+            ctr=(from+to)/2;
+            ii=-ctr;
+            for(int i=ctr;i<to;++i)
+                curve->samples.push_back(QPointF(ii++,scale*(offset+getImag(samples,i))));
+            for(int i=from;i<ctr;++i)
+                curve->samples.push_back(QPointF(ii++,scale*(offset+getImag(samples,i))));
+            break;
+
         }
 
         curve->curve.setData(curve->samples);
