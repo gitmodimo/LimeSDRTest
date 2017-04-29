@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>400</width>
-    <height>445</height>
+    <height>549</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -76,9 +76,9 @@
           </widget>
          </item>
          <item row="2" column="4">
-          <widget class="QPushButton" name="antennaButton">
+          <widget class="QPushButton" name="calTXButton">
            <property name="text">
-            <string>Set</string>
+            <string>CalibrateTX</string>
            </property>
           </widget>
          </item>
@@ -104,9 +104,9 @@
           </widget>
          </item>
          <item row="4" column="4">
-          <widget class="QPushButton" name="frequencyButton">
+          <widget class="QPushButton" name="restartButton">
            <property name="text">
-            <string>Set</string>
+            <string>RestartStream</string>
            </property>
           </widget>
          </item>
@@ -121,9 +121,9 @@
           </widget>
          </item>
          <item row="3" column="4">
-          <widget class="QPushButton" name="gainButton">
+          <widget class="QPushButton" name="calRXButton">
            <property name="text">
-            <string>Set</string>
+            <string>CalibrateRX</string>
            </property>
           </widget>
          </item>
@@ -258,6 +258,43 @@
            </property>
           </widget>
          </item>
+         <item row="5" column="4">
+          <widget class="QPushButton" name="saveButton">
+           <property name="text">
+            <string>Save</string>
+           </property>
+          </widget>
+         </item>
+         <item row="6" column="4">
+          <widget class="QPushButton" name="loadButton">
+           <property name="text">
+            <string>Load</string>
+           </property>
+          </widget>
+         </item>
+         <item row="10" column="1">
+          <widget class="QDoubleSpinBox" name="RXfSpinBox">
+           <property name="maximum">
+            <double>3800.000000000000000</double>
+           </property>
+           <property name="value">
+            <double>325.000000000000000</double>
+           </property>
+          </widget>
+         </item>
+         <item row="10" column="3">
+          <widget class="QDoubleSpinBox" name="TXfSpinBox">
+           <property name="maximum">
+            <double>3800.000000000000000</double>
+           </property>
+           <property name="singleStep">
+            <double>1.000000000000000</double>
+           </property>
+           <property name="value">
+            <double>325.000000000000000</double>
+           </property>
+          </widget>
+         </item>
         </layout>
        </item>
        <item row="2" column="0">
@@ -275,6 +312,9 @@
        </item>
        <item row="3" column="0">
         <widget class="QSlider" name="absPhase">
+         <property name="minimum">
+          <number>-1000</number>
+         </property>
          <property name="maximum">
           <number>1000</number>
          </property>

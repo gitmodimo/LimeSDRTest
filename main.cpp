@@ -10,6 +10,7 @@ int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
     MainWindow w;
+   system("rm ~/.limesuite/LMS7002M_cache_values.db ");
     w.show();
 
     return a.exec();

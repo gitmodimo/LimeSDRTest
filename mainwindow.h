@@ -24,10 +24,10 @@ class MainWindow : public QMainWindow
 public:
     explicit MainWindow(QWidget *parent = 0);
     ~MainWindow();
-    Plotter plot1;
+   // Plotter plot1;
     Plotter plot2;
     Plotter plot3;
-    Plotter plot4;
+   // Plotter plot4;
 
 public slots:
         void refreshDevicesList();

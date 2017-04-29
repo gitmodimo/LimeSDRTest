@@ -9,6 +9,7 @@
 #include <SoapySDR/Time.hpp>
 #include <QWidget>
 #include <QThread>
+#include <QSemaphore>
 #include <QDebug>
 #ifndef Q_DECL_OVERRIDE
     #define Q_DECL_OVERRIDE override
@@ -61,19 +62,15 @@ public slots:
     void setTIA(int gain);
     void setPGA(int gain);
     void setPAD(int gain);
-    void setRxAntenna(QString ant){
-        config.RXAntenna=ant.toStdString();
-        try{
-        sdrDevice->setAntenna(SOAPY_SDR_RX, 0, config.RXAntenna);
-        } catch (const std::exception& e) {
-            qDebug()<<e.what();
-        }
-        try{
-        sdrDevice->setAntenna(SOAPY_SDR_RX, 1,  config.RXAntenna);
-        } catch (const std::exception& e) {
-            qDebug()<<e.what();
-        }
-    }
+    void setRxAntenna(QString ant);
+    void calibrateAll();
+    void calibrateRequestRX();
+    void calibrateRequestTX();
+    void restartRequest();
+    void saveConfig();
+    void loadConfig();
+    void setRXf(double freq);
+    void setTXf(double freq);
 
 signals:
     void resultReady(const QString &s);
@@ -99,6 +96,9 @@ public:
     std::list<LimeSDRTask*> taskDoneList;
     std::mutex list_mutex;
     std::mutex doneList_mutex;
+    std::mutex calibrating;
+    QSemaphore doCalibrate;
+    int calibMode;
 };
 
 

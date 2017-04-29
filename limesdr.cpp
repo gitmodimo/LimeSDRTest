@@ -59,7 +59,8 @@ LimeSDRWorker::LimeSDRWorker(LimeSDRConfig _config):config(_config){
         qDebug()<<e.what();
     }
 
-
+    setTXf(config.TXFreq/1e6);
+    setRXf(config.RXFreq/1e6);
     //
     try{
     sdrDevice->setBandwidth(SOAPY_SDR_RX, 0, config.bw);
@@ -83,27 +84,7 @@ LimeSDRWorker::LimeSDRWorker(LimeSDRConfig _config):config(_config){
     }
     //
 
-    try{
-    sdrDevice->setFrequency(SOAPY_SDR_RX, 0, config.RXFreq, {});
-    } catch (const std::exception& e) {
-        qDebug()<<e.what();
-    }
-    try{
-    sdrDevice->setFrequency(SOAPY_SDR_RX, 1, config.RXFreq, {});
-    } catch (const std::exception& e) {
-        qDebug()<<e.what();
-    }
-  //
-    try{
-    sdrDevice->setFrequency(SOAPY_SDR_TX, 0, config.TXFreq, {});
-    } catch (const std::exception& e) {
-        qDebug()<<e.what();
-    }
-    try{
-    sdrDevice->setFrequency(SOAPY_SDR_TX, 1, config.TXFreq, {});
-    } catch (const std::exception& e) {
-        qDebug()<<e.what();
-    }
+
 //
     try{
     sdrDevice->setAntenna(SOAPY_SDR_RX, 0, config.RXAntenna);
@@ -178,18 +159,11 @@ LimeSDRWorker::LimeSDRWorker(LimeSDRConfig _config):config(_config){
     sdrDevice->setDCOffsetMode(SOAPY_SDR_TX,1,config.TXDCOffsetMode);
 
 
-    /*qDebug()<<"Start Cal";
-    try{
-        sdrDevice->writeSetting(SOAPY_SDR_RX,0,"CALIBRATE_RX",QString::number((int)config.bw).toStdString());
-    } catch (const std::exception& e) {
-        qDebug()<<e.what();
-    }
-    try{
-        sdrDevice->writeSetting(SOAPY_SDR_RX,1,"CALIBRATE_RX",QString::number((int)config.bw).toStdString());
-    } catch (const std::exception& e) {
-        qDebug()<<e.what();
-    }
-    qDebug()<<"Apply Cal";
+    qDebug()<<"Start Cal";
+
+    calibMode=3;
+    calibrateAll();
+   /* qDebug()<<"Apply Cal";
     try{
         sdrDevice->writeSetting(SOAPY_SDR_RX,0,"APPLY_CORRECTIONS",config.RXApplyCorrections);
     } catch (const std::exception& e) {
@@ -275,8 +249,21 @@ void LimeSDRWorker::run(){
 
     while(1){
         // for(int i=0;i<100;++i){
+
+
+
         while(txBufferTime-txBufferAhead<sdrDevice->getHardwareTime()){
             if(taskDone){
+                if(doCalibrate.tryAcquire()){
+                    sdrDevice->deactivateStream(rxStream,0,0);
+                    sdrDevice->deactivateStream(txStream,0,0);
+                    calibrateAll();
+                    sdrDevice->activateStream(rxStream,0,0,0);
+                    sdrDevice->activateStream(txStream,0,0,0);
+                    txBufferTime=txBufferAhead;
+                    txTime0 = sdrDevice->getHardwareTime() + (0.001e9) ;//100ms
+
+                }
                 task=takeTask();
                 if(task!=nullptr){
                     readCounter[0]=0;
@@ -432,6 +419,148 @@ void LimeSDRWorker::setPAD(int gain){
     } catch (const std::exception& e) {
         qDebug()<<e.what();
     }
+}
+
+void LimeSDRWorker::setRxAntenna(QString ant){
+    config.RXAntenna=ant.toStdString();
+    try{
+        sdrDevice->setAntenna(SOAPY_SDR_RX, 0, config.RXAntenna);
+    } catch (const std::exception& e) {
+        qDebug()<<e.what();
+    }
+    try{
+        sdrDevice->setAntenna(SOAPY_SDR_RX, 1,  config.RXAntenna);
+    } catch (const std::exception& e) {
+        qDebug()<<e.what();
+    }
+}
+
+void LimeSDRWorker::calibrateAll(){
+
+    double RXGainLNA=config.RXGainLNA;
+    double RXGainTIA=config.RXGainTIA;
+    double RXGainPGA=config.RXGainPGA;
+    double TXGainPAD=config.TXGainPAD;
+    std::complex<double> q;
+    setLNA(30);
+    setTIA(0);
+    setPGA(19);
+    setPAD(0);
+    QThread::msleep(500);
+    if(calibMode&1){
+        try{
+            sdrDevice->writeSetting(SOAPY_SDR_TX,0,"CALIBRATE_TX",QString::number((int)config.bw).toStdString());
+        } catch (const std::exception& e) {
+            qDebug()<<e.what();
+        }
+        q=sdrDevice->getIQBalance(SOAPY_SDR_TX,0);
+        qDebug()<<q.real()<<q.imag();
+
+        try{
+            sdrDevice->writeSetting(SOAPY_SDR_TX,1,"CALIBRATE_TX",QString::number((int)config.bw).toStdString());
+        } catch (const std::exception& e) {
+            qDebug()<<e.what();
+        }
+        q=sdrDevice->getIQBalance(SOAPY_SDR_TX,1);
+        qDebug()<<q.real()<<q.imag();
+
+    }
+    if(calibMode&2){
+        try{
+            sdrDevice->writeSetting(SOAPY_SDR_RX,0,"CALIBRATE_RX",QString::number((int)config.bw).toStdString());
+        } catch (const std::exception& e) {
+            qDebug()<<e.what();
+        }
+        q=sdrDevice->getIQBalance(SOAPY_SDR_RX,0);
+        qDebug()<<q.real()<<q.imag();
+
+        try{
+            sdrDevice->writeSetting(SOAPY_SDR_RX,1,"CALIBRATE_RX",QString::number((int)config.bw).toStdString());
+        } catch (const std::exception& e) {
+            qDebug()<<e.what();
+        }
+        q=sdrDevice->getIQBalance(SOAPY_SDR_RX,1);
+        qDebug()<<q.real()<<q.imag();
+
+
+        unsigned sto=sdrDevice->readRegister(0x0100);
+        unsigned LMS7_CFB_TIA_RFE=sdrDevice->readRegister(0x0112);
+        /*qDebug()<<"LMS7_CFB_TIA_RFE:"<<LMS7_CFB_TIA_RFE<<sto;
+        try{
+            sdrDevice->writeSetting("SAVE_CONFIG","CFG.txt");
+        } catch (const std::exception& e) {
+            qDebug()<<e.what();
+        }*/
+
+
+    }
+    setLNA(RXGainLNA);
+    setTIA(RXGainTIA);
+    setPGA(RXGainPGA);
+    setPAD(TXGainPAD);
+    sdrDevice->setDCOffsetMode(SOAPY_SDR_RX,0,config.RXDCOffsetMode);
+    sdrDevice->setDCOffsetMode(SOAPY_SDR_RX,1,config.RXDCOffsetMode);
+    sdrDevice->setDCOffsetMode(SOAPY_SDR_TX,0,config.TXDCOffsetMode);
+    sdrDevice->setDCOffsetMode(SOAPY_SDR_TX,1,config.TXDCOffsetMode);
+
+}
+
+void LimeSDRWorker::calibrateRequestTX(){
+    calibMode=1;
+    doCalibrate.release();
+}
+
+void LimeSDRWorker::restartRequest(){
+    calibMode=0;
+    doCalibrate.release();
+}
+
+void LimeSDRWorker::saveConfig(){
+    try{
+        sdrDevice->writeSetting("SAVE_CONFIG","CFG.txt");
+    } catch (const std::exception& e) {
+        qDebug()<<e.what();
+    }
+}
+
+void LimeSDRWorker::loadConfig(){
+    try{
+        sdrDevice->writeSetting("LOAD_CONFIG","CFG.txt");
+    } catch (const std::exception& e) {
+        qDebug()<<e.what();
+    }
+}
+
+void LimeSDRWorker::setRXf(double freq){
+    config.RXFreq=freq*1e6;
+    try{
+        sdrDevice->setFrequency(SOAPY_SDR_RX, 0, config.RXFreq, {});
+    } catch (const std::exception& e) {
+        qDebug()<<e.what();
+    }
+    try{
+        sdrDevice->setFrequency(SOAPY_SDR_RX, 1, config.RXFreq, {});
+    } catch (const std::exception& e) {
+        qDebug()<<e.what();
+    }
+}
+
+void LimeSDRWorker::setTXf(double freq){
+    config.TXFreq=freq*1e6;
+    try{
+        sdrDevice->setFrequency(SOAPY_SDR_TX, 0, config.TXFreq, {});
+    } catch (const std::exception& e) {
+        qDebug()<<e.what();
+    }
+    try{
+        sdrDevice->setFrequency(SOAPY_SDR_TX, 1, config.TXFreq, {});
+    } catch (const std::exception& e) {
+        qDebug()<<e.what();
+    }
+}
+void LimeSDRWorker::calibrateRequestRX(){
+    calibMode=2;
+    doCalibrate.release();
 }
 
 void LimeSDRWorker::addTask(LimeSDRTask *task){

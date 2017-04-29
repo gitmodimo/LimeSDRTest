@@ -77,12 +77,15 @@ void MainWindow::connectDevice(){
         }
     }
 
+    limeSDRconf.devicesKwargs["cacheCalibrations"]="0";
+
+
     ///////////////////////////
     limeSDRconf.samplerate=20e6;
-    limeSDRconf.bw=30e6;
-    limeSDRconf.RXFreq=700e6;//1880.0e6;//10.0e6+2462.0e6;//1880.0e6;//90e6;//2457.0e6;10.0e6+2462.0e6;//
-    limeSDRconf.TXFreq=700e6;//1880.0e6+0e6+0*.0001e6;//10e6+//10.0e6+2462.0e6;//1880.0e6;//90e6;//2457.0e6;10.0e6+2462.0e6;//
-    limeSDRconf.RXAntenna="LNAL";
+    limeSDRconf.bw=20e6;
+    limeSDRconf.RXFreq=325e6;//1880.0e6;//10.0e6+2462.0e6;//1880.0e6;//90e6;//2457.0e6;10.0e6+2462.0e6;//
+    limeSDRconf.TXFreq=325e6;//1880.0e6+0e6+0*.0001e6;//10e6+//10.0e6+2462.0e6;//1880.0e6;//90e6;//2457.0e6;10.0e6+2462.0e6;//
+    limeSDRconf.RXAntenna="LNAW";
     limeSDRconf.TXAntenna="BAND1";
     limeSDRconf.RXGainLNA=30-10;
     limeSDRconf.RXGainTIA=0;
@@ -98,6 +101,8 @@ void MainWindow::connectDevice(){
     ui->TIAGain->setValue(limeSDRconf.RXGainTIA);
     ui->PGAGain->setValue(limeSDRconf.RXGainPGA);
     ui->PADGain->setValue(limeSDRconf.TXGainPAD);
+    ui->RXfSpinBox->setValue(limeSDRconf.RXFreq/1e6);
+    ui->TXfSpinBox->setValue(limeSDRconf.TXFreq/1e6);
 
     lime=new LimeSDR(limeSDRconf);
     connect(&lime->worker,SIGNAL(taskDone()),SLOT(updatePlot()));
@@ -109,7 +114,14 @@ void MainWindow::connectDevice(){
     connect(ui->PGAGain,SIGNAL(valueChanged(int)),&lime->worker,SLOT(setPGA(int)));
     connect(ui->PADGain,SIGNAL(valueChanged(int)),&lime->worker,SLOT(setPAD(int)));
     connect(ui->antennaComboBox,SIGNAL(activated(QString)),&lime->worker,SLOT(setRxAntenna(QString)));
-
+    connect(ui->calRXButton,SIGNAL(clicked(bool)),&lime->worker,SLOT(calibrateRequestRX()));
+    connect(ui->calTXButton,SIGNAL(clicked(bool)),&lime->worker,SLOT(calibrateRequestTX()));
+    connect(ui->restartButton,SIGNAL(clicked(bool)),&lime->worker,SLOT(restartRequest()));
+    connect(ui->saveButton,SIGNAL(clicked(bool)),&lime->worker,SLOT(saveConfig()));
+    connect(ui->loadButton,SIGNAL(clicked(bool)),&lime->worker,SLOT(loadConfig()));
+    connect(ui->RXfSpinBox,SIGNAL(valueChanged(double)),&lime->worker,SLOT(setRXf(double)));
+    connect(ui->TXfSpinBox,SIGNAL(valueChanged(double)),&lime->worker,SLOT(setTXf(double)));
+   // connect(ui->calButton,SIGNAL(clicked(bool)),SLOT(addTask()));
 
 
     lime->worker.start();
@@ -224,7 +236,10 @@ void MainWindow::connectDevice(){
     }
 
 
-
+    /*std::vector<std::string> registers=sdrDevice->listRegisterInterfaces();
+    for(const std::string register:registers){
+        qDebug()<<"Reg: "<<register;
+    }*/
 
 
     //updatefft();
@@ -272,6 +287,12 @@ void MainWindow::updatePlot(){
         rxsig[j]=alglib::complex(task->RX[0][j].real(),task->RX[0][j].imag());
         rxsig2[j]=alglib::complex(task->RX[1][j].real(),task->RX[1][j].imag());
     }
+
+
+    plot2.setAxisScale(QwtPlot::yLeft,-2048,2048);
+    plot2.draw("DIFF_ARG",rxsig,512,2048,REAL);
+    plot2.draw("DIFF_ARG2",rxsig,512,2048,IMAG);
+
 
     //spectrogram
 
@@ -324,7 +345,7 @@ void MainWindow::updatePlot(){
     time_avg[task->RX[0].size()-1].x=phshift;
     time_avg[task->RX[0].size()-1].y=phshift_avg;
     //phshift/=10000.0;
-    plot2.setAxisScale(QwtPlot::yLeft,-4,4);
+    /*AOA  plot2.setAxisScale(QwtPlot::yLeft,-4,4);
     plot2.draw("DIFF_ARG",diff,REAL_SHIFT);
 
     plot4.setAxisScale(QwtPlot::yLeft,-5,5);
@@ -333,7 +354,7 @@ void MainWindow::updatePlot(){
 
 
     plot1.setAxisScale(QwtPlot::yLeft,-5,5);
-    plot1.draw("DIFF_ARG_AVG",diff_avg,REAL_SHIFT);
+    plot1.draw("DIFF_ARG_AVG",diff_avg,REAL_SHIFT);*/
   //  plot1.draw("DIFF_MOD",diff,IMAG_SHIFT,10);
    /*  plot2.setAxisScale(QwtPlot::yLeft,-3000,3000);
      plot2.draw("TX_REAL",task->TX[0],REAL);
@@ -409,23 +430,33 @@ void MainWindow::addTask(){
         testtask.TX[0][i]=0;
         testtask.TX[1][i]=0;
     }*/
-    double ph=((double)ui->phaseSlider->value()/100.0*2*M_PI);
+    double ph=((double)ui->phaseSlider->value()/1000.0);
     double ampl=ui->ampSlider->value()/100.0;
-    double absphase=ui->absPhase->value()/1000.0*2.0*M_PI;
-    double phase=0,freq=0;
+    double absphase=ui->absPhase->value()/1000.0*M_PI;
+    double phase=0,freq=0,phase2=0,freq2=0;
     for(int i=0;i<TX_BURST;i++){
         //testtask.TX[0][i]=1.0*C_FULL_SCALE*std::exp(j *2.0* pi*tonef*(((double)i)/limeSDRconf.samplerate));
         //testtask.TX[0][i]=C_FULL_SCALE*std::exp(-j* pi*u*(double)i*((double)i+1.0+2.0*q+TX_BURST/8.0)/((double)TX_BURST*2));
         freq=5.0e6-10.0e6*(double)i/(double)TX_BURST;
         phase+=freq/(double)limeSDRconf.samplerate;
-        testtask.TX[0][i]=C_FULL_SCALE*std::exp(-j*2.0*pi*(phase));
+        phase+=(5.0e6-10.0e6*(double)i/(double)TX_BURST)/(double)limeSDRconf.samplerate;
 
 
+        phase=(double)i*(5.0e6-1.0/2.0*10.0e6*(double)i/(double)TX_BURST)/(double)limeSDRconf.samplerate;
+
+        testtask.TX[0][i]=C_FULL_SCALE*std::exp(-j*2.0*pi*(phase))/2.0;
+
+
+        freq2=5.0e6-10.0e6*(double)i/(double)TX_BURST;
+
+        phase2=ph+(double)i*(5.0e6-1.0/2.0*10.0e6*(double)i/(double)TX_BURST)/(double)limeSDRconf.samplerate;
+
+        testtask.TX[1][i]=-ampl*C_FULL_SCALE*std::exp(j*absphase-j*2.0*pi*(phase2))/2.0;
 
 
         //testtask.TX[1][i]=ampl*1.0*C_FULL_SCALE*std::exp(j *2.0* pi*(ph+tonef*((double)i)/limeSDRconf.samplerate));//C_FULL_SCALE*std::exp(j *2.0* pi*tonef2*((double)i)/SAMPLING);
-        testtask.TX[1][i]=-ampl*C_FULL_SCALE*std::exp(j*absphase-j* pi*u*((double)i*(ph+(double)i+1.0+2.0*q+TX_BURST/8.0)/((double)TX_BURST*2)));
-
+        //testtask.TX[1][i]=-ampl*C_FULL_SCALE*std::exp(j*absphase-j* pi*u*((double)i*(ph+(double)i+1.0+2.0*q+TX_BURST/8.0)/((double)TX_BURST*2)));
+        //testtask.TX[1][i]=0;
         //tx_buff2[i]=std::complex<int16_t>(0,0);
     }
     testtask.TX[0][0]=0;
@@ -443,7 +474,9 @@ void MainWindow::addTask(){
     testtask.RX[0].resize(RX_BURST);
     testtask.RX[1].resize(RX_BURST);
     //for(int i=0;i<1000;i++)
+    lime->worker.calibrating.lock();
         lime->worker.addTask(&testtask);
+        lime->worker.calibrating.unlock();
 }
 
 void MainWindow::stateMachine(){
